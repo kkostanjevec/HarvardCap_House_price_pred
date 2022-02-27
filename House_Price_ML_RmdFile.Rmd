@@ -1,0 +1,652 @@
+---
+title: "Harvard Data Science Capstone: House Price Prediction"
+author: "Karlo Kostanjevec"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Content
+ - 1. Introduction
+ - 2. Data Import and Overview
+ - 3. Methods and Analysis I: Data cleaning
+ - 4. Methods and Analysis II: Data engineering
+ - 5. Methods and Analysis III: Data visualizations
+ - 6. Machine Learning Models and Results
+ - 7. Summary and Conclusion
+ 
+## 1. Introduction
+The purpose of this project is to create House Price Prediction System based on the House Prices - Advanced Regression Techniques dataset from Kaggle. Our goals is to generate predictions of the final prices of houses. Regarding my motivation for picking this data-set for final project it is worth noting that in most cases buying a real-estate is the largest investments for the majority of people and, moreover, I am also currently in a process of buying a real estate. Therefore, the topic of house prices is important from both general and personal perspective. The link to the data-set and ongoing Kaggle competition is here: https://www.kaggle.com/c/house-prices-advanced-regression-techniques .
+
+In order to build House Price Prediction System we will use machine learning (ML) approach. In general, machine learning is a variation of artificial intelligence where algorithms are used to improve a system automatically via experience and by the use of data. Therefore, machine learning can be seen as a cross-disciplinary field between data science and artificial intelligence. 
+
+More specifically, we will use advanced regression machine learning techniques and measure the performance of these techniques with residual mean squared error (RMSE) metrics which allows us to see typical error loss. Moreover, Kaggle web-site states that this data-set is a  part of a contest, in which the submission with the lowest RMSE wins. The RMSE must be calculated between the logarithm of the predicted value and the logarithm of the observed sale price. Therefore, in order to measure the performance of ML predictions, described log RMSE metrics will be used.
+
+As it can be seen on Kaggle web-page, our respective data-set is offered in two separated files, one for training (train.csv) and another one for testing (test.csv). The data-set has 79 explanatory variables describing (almost) every aspect of residential homes in Ames, Iowa, United States of America. Furthermore, through data exploration of the respective data-sets from Kaggle (test.csv and train csv) it will be visible that the test.csv has no SalePrice variable (it has 1 variable less than train.csv). Therefore, we will use train.csv for our ML models and the data-set will be divided in three parts: 60% for training, 20% for testing and 20% for final validation of trained models. 
+
+First, we will import the data (automatically, from my GitHub repo) and afterwards we will clean imported datasets. Afterwards, we will do some data engineering and remodeling, including the creation of three new variables which we will use for later purposes: data visualization and machine learning. Therefore, after data engineering we will visualize some aspects of the data that are crucial for future ML models, including correlations. Finally, in the fifth chapter we will train four ML models and test them on test set and perform final validation on validation set. In the last part of this project, we will summarize all results of our ML models, highlight the best performing model (random forest with train RMSE 0.144 and validation RMSE 0.134) and highlight some limitations and proposition for future improvement.
+
+## 2. Data Import and Overview
+Before proceeding, install and load the following packages:
+
+```{r error=FALSE, warning=FALSE, message=FALSE}
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = T)
+if(!require(plyr)) install.packages("plyr", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(e1071)) install.packages("e1071", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(glmnet)) install.packages("glmnet", repos = "http://cran.us.r-project.org")
+if(!require(Matrix)) install.packages("Matrix", repos = "http://cran.us.r-project.org")
+if(!require(lattice)) install.packages("lattice", repos = "http://cran.us.r-project.org")
+if(!require(dummies)) install.packages("dummies", repos = "http://cran.us.r-project.org")
+if(!require(lares)) install.packages("lattice", repos = "http://cran.us.r-project.org")
+load("my_work_space.RData")
+```
+
+
+The respective data can be downloaded from the GitHub repository with the code below: 
+```{r}
+training_data = read.csv(file = file.path("https://raw.githubusercontent.com/kkostanjevec/HarvardCap_House_price_pred/main/train.csv"))
+
+test_data = read.csv(file = file.path("https://raw.githubusercontent.com/kkostanjevec/HarvardCap_House_price_pred/main/test.csv"))
+```
+There is a third file called data_description, which gives details on every variable, and can also be found in the same GitHub repository:
+https://github.com/kkostanjevec/HarvardCap_House_price_pred/blob/main/data_description.txt
+
+Data exploration shows that the data we need to analyze in order to create a ML models has two separate files: test.csv (test_data) has 1459 observations and 80 variables, while train.csv (training_data) has 1460 observations and 81 variable. There is 1 variable more in training_data than in test_data: test data has no SalePrice variable. Therefore, we will use training_data (train.csv) for ML training, testing and validating process.
+
+```{r}
+str(training_data)
+```
+
+```{r}
+str(test_data)  
+```
+
+In order to clean the data we will merge the data-sets and clean them both at once.
+
+```{r}
+# join datasets for data cleaning 
+test_data$SalePrice <- 0
+dataset <- rbind(training_data, test_data)
+```
+
+## 3. Methods and Analysis I: Data cleaning 
+The datasets from Kaggle have 34 columns with missing values which need to be cleaned.
+```{r}
+# data set is filled with missing values - this needs to be addressed
+na.cols <- which(colSums(is.na(dataset)) > 0)
+sort(colSums(sapply(dataset[na.cols], is.na)), decreasing = TRUE)
+paste('There are', length(na.cols), 'columns with missing values')
+```
+
+First, we will deal with missing values in numerical variables.
+```{r}
+# dealing with numerical variable - assume that `NAs` in these variables means 0.
+# e.g. LotFrontage : NA most likely means no lot frontage
+dataset$LotFrontage[is.na(dataset$LotFrontage)] <- 0
+dataset$MasVnrArea[is.na(dataset$MasVnrArea)] <- 0
+dataset$BsmtFinSF1[is.na(dataset$BsmtFinSF1)] <- 0
+dataset$BsmtFinSF2[is.na(dataset$BsmtFinSF2)] <- 0
+dataset$BsmtUnfSF[is.na(dataset$BsmtUnfSF)] <- 0
+dataset$TotalBsmtSF[is.na(dataset$TotalBsmtSF)] <- 0
+dataset$BsmtFullBath[is.na(dataset$BsmtFullBath)] <- 0
+dataset$BsmtHalfBath[is.na(dataset$BsmtHalfBath)] <- 0
+dataset$GarageCars[is.na(dataset$GarageCars)] <- 0
+dataset$GarageArea[is.na(dataset$GarageArea)] <- 0
+```
+
+There is also a mistake in the data-set.
+```{r}
+# for the variable "GarageYrBlt". We can assume that the year 
+# the garage was built is the same when the house itself was built.
+dataset$GarageYrBlt[is.na(dataset$GarageYrBlt)] <- dataset$YearBuilt[is.na(dataset$GarageYrBlt)]
+summary(dataset$GarageYrBlt)
+# correcting the error in the dataset
+dataset$GarageYrBlt[dataset$GarageYrBlt==2207] <- 2007
+```
+
+Next, we will deal with missing values in categorical variables.
+```{r}
+# dealing with `NAs` in categorical values.
+# we find "real" NAs, then impute them with the most common value for this feature.
+dataset$KitchenQual[is.na(dataset$KitchenQual)] <- names(sort(-table(dataset$KitchenQual)))[1]
+dataset$MSZoning[is.na(dataset$MSZoning)] <- names(sort(-table(dataset$MSZoning)))[1]
+dataset$SaleType[is.na(dataset$SaleType)] <- names(sort(-table(dataset$SaleType)))[1]
+dataset$Exterior1st[is.na(dataset$Exterior1st)] <- names(sort(-table(dataset$Exterior1st)))[1]
+dataset$Exterior2nd[is.na(dataset$Exterior2nd)] <- names(sort(-table(dataset$Exterior2nd)))[1]
+dataset$Functional[is.na(dataset$Functional)] <- names(sort(-table(dataset$Functional)))[1]
+```
+
+```{r}
+# for empty values, we just change the `NA` value to a new value - 'No', 
+# for the rest we change NAs to their actual meaning, 
+# e.g. NA for basement features is "no basement", etc.
+dataset$Alley = factor(dataset$Alley, levels=c(levels(dataset$Alley), "No"))
+dataset$Alley[is.na(dataset$Alley)] = "No"
+dataset$BsmtQual = factor(dataset$BsmtQual, levels=c(levels(dataset$BsmtQual), "No"))
+dataset$BsmtQual[is.na(dataset$BsmtQual)] = "No"
+dataset$BsmtCond = factor(dataset$BsmtCond, levels=c(levels(dataset$BsmtCond), "No"))
+dataset$BsmtCond[is.na(dataset$BsmtCond)] = "No"
+dataset$BsmtExposure[is.na(dataset$BsmtExposure)] = "No"
+dataset$BsmtFinType1 = factor(dataset$BsmtFinType1, levels=c(levels(dataset$BsmtFinType1), "No"))
+dataset$BsmtFinType1[is.na(dataset$BsmtFinType1)] = "No"
+dataset$BsmtFinType2 = factor(dataset$BsmtFinType2, levels=c(levels(dataset$BsmtFinType2), "No"))
+dataset$BsmtFinType2[is.na(dataset$BsmtFinType2)] = "No"
+dataset$Fence = factor(dataset$Fence, levels=c(levels(dataset$Fence), "No"))
+dataset$Fence[is.na(dataset$Fence)] = "No"
+dataset$FireplaceQu = factor(dataset$FireplaceQu, levels=c(levels(dataset$FireplaceQu), "No"))
+dataset$FireplaceQu[is.na(dataset$FireplaceQu)] = "No"
+dataset$GarageType = factor(dataset$GarageType, levels=c(levels(dataset$GarageType), "No"))
+dataset$GarageType[is.na(dataset$GarageType)] = "No"
+dataset$GarageFinish = factor(dataset$GarageFinish, levels=c(levels(dataset$GarageFinish), "No"))
+dataset$GarageFinish[is.na(dataset$GarageFinish)] = "No"
+dataset$GarageQual = factor(dataset$GarageQual, levels=c(levels(dataset$GarageQual), "No"))
+dataset$GarageQual[is.na(dataset$GarageQual)] = "No"
+dataset$GarageCond = factor(dataset$GarageCond, levels=c(levels(dataset$GarageCond), "No"))
+dataset$GarageCond[is.na(dataset$GarageCond)] = "No"
+dataset$MasVnrType = factor(dataset$MasVnrType, levels=c(levels(dataset$MasVnrType), "No"))
+dataset$MasVnrType[is.na(dataset$MasVnrType)] = "No"
+dataset$MiscFeature = factor(dataset$MiscFeature, levels=c(levels(dataset$MiscFeature), "No"))
+dataset$MiscFeature[is.na(dataset$MiscFeature)] = "No"
+dataset$PoolQC = factor(dataset$PoolQC, levels=c(levels(dataset$PoolQC), "No"))
+dataset$PoolQC[is.na(dataset$PoolQC)] = "No"
+dataset$Electrical = factor(dataset$Electrical, levels=c(levels(dataset$Electrical), "UNK"))
+dataset$Electrical[is.na(dataset$Electrical)] = "UNK"
+```
+
+Some features can be removed because they don't have informative purpose.
+```{r}
+# remove some unnecessary features 
+dataset$Utilities <- NULL
+dataset$Id <- NULL
+```
+
+Final check of the data-set regarding NA/missing values:
+```{r}
+# now check again if we have null values.
+na.cols <- which(colSums(is.na(dataset)) > 0)
+paste('There are now', length(na.cols), 'columns with missing values')
+```
+As it can be seen, the data-set is now clean and has no missing values.
+
+## 4. Methods and Analysis II: Data engineering
+In this section we will do some data engineering and remodeling in order to enhance variables we have in the data-set from Kaggle for our machine learning purposes. As stated in the data-description: respective data-set from Kaggle has 79 explanatory variables describing (almost) every aspect of residential homes in Ames, Iowa, USA. However, in order to enhance our data we will first recode some descriptive variables in order to get ordinal data on numerical score-lists; secondly, we will create some new features/variables from existing variables; and thirdly, we will deal with skewness of the target value - SalePrice - by applying log transformation.
+
+- First, we will recode some descriptive variables in order to get ordinal data  on numerical score-lists which will be more useful for later purposes. For example, we will recode variables ExterQual, HeatingQC and KitchenQual (quality of exterior material, heating quality and quality of kitchen in a house) from "None", "Poor", "Fair", "TA=Typical", "Good" and "Excellent" into 0 for none, 1 for poor, 2 for fair, 3 for typical 4 for good and 6 for excellent quality.
+```{r}
+# Recoding descriptive variables into ordinal
+dataset$ExterQual<- recode(dataset$ExterQual,"None"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$ExterCond<- recode(dataset$ExterCond,"None"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$BsmtQual<- recode(dataset$BsmtQual,"No"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$BsmtCond<- recode(dataset$BsmtCond,"No"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$BsmtExposure<- recode(dataset$BsmtExposure,"No"=0,"No"=1,"Mn"=2,"Av"=3,"Gd"=6)
+dataset$BsmtFinType1<- recode(dataset$BsmtFinType1,"No"=0,"Unf"=1,"LwQ"=2,"Rec"=3,"BLQ"=4,
+                              "ALQ"=5,"GLQ"=6)
+dataset$BsmtFinType2<- recode(dataset$BsmtFinType2,"No"=0,"Unf"=1,"LwQ"=2,"Rec"=3,"BLQ"=4,
+                              "ALQ"=5,"GLQ"=6)
+dataset$HeatingQC<- recode(dataset$HeatingQC,"None"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$KitchenQual<- recode(dataset$KitchenQual,"None"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$Functional<- recode(dataset$Functional,"None"=0,"Sev"=1,"Maj2"=2,"Maj1"=3,"Mod"=4,
+                            "Min2"=5,"Min1"=6,"Typ"=7)
+dataset$FireplaceQu<- recode(dataset$FireplaceQu,"No"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$GarageFinish<- recode(dataset$GarageFinish,"No"=0,"Unf"=1,"RFn"=2,"Fin"=3)
+dataset$GarageQual<- recode(dataset$GarageQual,"No"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$GarageCond<- recode(dataset$GarageCond,"No"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$PoolQC<- recode(dataset$PoolQC,"No"=0,"Po"=1,"Fa"=2,"TA"=3,"Gd"=4,"Ex"=6)
+dataset$Fence<- recode(dataset$Fence,"No"=0,"MnWw"=1,"GdWo"=2,"MnPrv"=3,"GdPrv"=6)
+```
+
+- Next, we will add three new features or variables into the existing data-set. 
+
+First newly created variable is "TotalInsideSF" which will show the total inside surface of the house by combining the total surface of the 1. and 2. floor square feet.
+```{r}
+# i) new feature - area/size
+# Total surface of the house, combining the total inside surface (1 and 2 floor square feet)
+dataset['TotalInsideSF'] <- as.numeric(dataset$X1stFlrSF + dataset$X2ndFlrSF)
+```
+
+Second newly created variable is "FoundationScore" which will measure the quality of the foundation material of a house according to their median house value on an scale from 1 (worst foundation material) to 6 (best foundation material).
+
+```{r}
+# ii) new feature - quality of the foundation material of a house
+#     codify the ranking of the foundation material according to the median house value.
+training_data[,c('Foundation','SalePrice')] %>%
+  group_by(Foundation) %>%
+  summarise(avg = median(SalePrice, na.rm = TRUE)) %>%
+  arrange(avg) %>%
+  mutate(sorted = factor(Foundation, levels=Foundation)) %>%
+  ggplot(aes(x=sorted, y=avg)) +
+  geom_bar(stat = "identity", fill="grey") + 
+  scale_y_continuous(labels = scales::comma)+
+  labs(x='Foundation', y='Price in $') +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle=45))+
+  labs(title ="Figure 1: Median prices of the house foundation",
+       subtitle="in order to codify the ranking of foundation types according to their median price")
+
+dataset$FoundationScore <- recode(dataset$Foundation, 'Slab' = 1, 'BrkTil' = 2,
+                                  'Stone' = 2, 'CBlock' = 3, 'Wood' = 4, 'PConc' = 6) 
+```
+
+
+Third new feature deals with the location/neighborhood of a house.It is common wisdom that the location of a house is one of the most important predictor of its price. Therefore, the new variable "NeighborhoodScored" measures the "quality" of location of a house according to their median price value on scale from 1(worst location) - 7 (best location).
+
+```{r}
+training_data[,c('Neighborhood','SalePrice')] %>%
+  group_by(Neighborhood) %>%
+  summarise(avg = median(SalePrice, na.rm = TRUE)) %>%
+  arrange(avg) %>%
+  mutate(sorted = factor(Neighborhood, levels=Neighborhood)) %>%
+  ggplot(aes(x=sorted, y=avg)) +
+  geom_bar(stat = "identity", fill="grey") + 
+  scale_y_continuous(labels = scales::comma)+
+  labs(x='Neighborhood', y='Price in $') +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle=45))+
+  labs(title ="Figure 2: Median prices in various neighborhoods",
+       subtitle="in order to codify the ranking of the neighborhoods according to their median price")
+
+dataset$NeighborhoodScored <- recode(dataset$Neighborhood, 'MeadowV' = 1, 'IDOTRR' = 2, 
+                                     'BrDale' = 2, 'OldTown' = 3, 'Edwards' = 3, 
+                                     'BrkSide' = 3,'Sawyer' = 4, 'Blueste' = 4, 
+                                     'SWISU' = 4, 'NAmes' = 4, 'NPkVill' = 4, 
+                                     'Mitchel' = 4,'SawyerW' = 5, 'Gilbert' = 5, 
+                                     'NWAmes' =5, 'Blmngtn' = 5, 'CollgCr' = 5, 
+                                     'ClearCr' = 5, 'Crawfor' = 5, 'Veenker' = 6, 
+                                     'Somerst' = 6, 'Timber' = 6, 'StoneBr' = 7, 
+                                     'NoRidge' = 7, 'NridgHt' =7)
+
+```
+
+- Next, we want to analyse our target variable that we want to predict, namely, SalePrice (selling price of a house). 
+
+On the Figure 3 below we can see the distribution of this variable. 
+
+```{r}
+ggplot(training_data, aes(SalePrice)) +
+  geom_histogram(fill="grey") +
+  scale_x_continuous(labels = scales::comma)+
+  labs(title="Figure 3: Distribution of Sale Prices",
+       subtitle = "Original prices (without log) from the dataset",
+       x="Sale Prices in $")+
+  theme_bw()
+```
+
+The distribution is right or positive skewed. Skewness of the data refers to its imbalance and asymmetry from the mean of a data distribution. Positive skew means that the extreme data results are larger which brings the mean (average) up. This also means that the mean will be larger than the median. The distribution shows that most of the houses are sold under 200,000. This is confirmed if we statistically summarize Sale Price variable:
+
+```{r}
+summary(training_data$SalePrice) # original $ prices
+```
+
+Mean price is around 180.000 dollars and median is 163.000 dollars.
+Therefore, in order to deals with this skewness we will log transform the target value (SalePrice). 
+```{r}
+# Dealing with Skewness - Transform the target value - SalePrice - applying log
+dataset$SalePrice <- log(dataset$SalePrice)
+```
+
+At the end, we will factorize some features
+```{r}
+# Factorize features
+dataset$MSSubClass <- as.factor(dataset$MSSubClass)
+dataset$MoSold <- as.factor(dataset$MoSold)
+dataset$YrSold <- as.factor(dataset$YrSold)
+
+```
+
+## 5. Methods and Analysis III: Data visualisations
+
+As stated at the beginning: if we check the test_data from Kaggle we can see it has no SalePrice variable that we are trying to predict. Therefore, we will need to focus on the training part of the data-set (i.e. now cleaned dataset1[1:1460,]) for training, testing and validating our ML models. 
+But first, we will check the statistical summaries of cleaned data-set which will be the basis for further work.
+```{r}
+train <- dataset[1:1460,]
+summary(train) # check the statistical summaries of the cleaned data-set
+```
+
+Before we dive into ML models, it is prudent to check the correlations of all variables with our target variable - Sale Price - in order to see which variables could be the most important/correlated for predicting the sale price of houses. In the figure below we can see 20 most correlated (Pearson correlation method) variables with SalePrice:
+
+Figure 4: Correlation Report: 20 most correlated variables with SalePrice variable
+```{r}
+corr_var(train,                # name of the dataset (which is now cleaned and remodeled)
+         SalePrice,            # name of the variable to focus on
+         method = "pearson",   # name of the correlation approach
+         top = 20)             # display top 20 correlations
+```
+
+The chart above helps us to see the variables that could be important in predicting the SalePrice variable of houses. We could summarize 20 most correlated variables in the correlation chart above in 4 dimensions: 
+
+- 1. Dimension - Quality - refers to the quality of a house and includes the following variables from the dataset: 
+       OverallQual (Rates the overall material and finish of the house - most correlated variable);
+       KitchenQual (Kitchen quality and condition); 
+       FullBath (Full bathrooms above ground); 
+       FoundationScore (Type of foundation - score on the 1-6 score-list);
+       Fireplaces (Number of fireplaces); 
+       HeatingQC (Heating quality and condition); 
+       ExterQual (Evaluates the quality of the material on the exterior).
+
+- 2. Dimension - Location - refers to the location of a house and includes the following variable: 
+       NeighborhoodScored (Location of a house on the 1-7 score-list).
+
+- 3. Dimension - Size - refers to the size of a house and includes the following variables: 
+       TotalInsideSF (Total inside surface of a house, combining 1st and 2nd floor); 
+       GarageCars (Size of garage in car capacity); 
+       GrLivArea (Above ground living area square feet); 
+       GarageArea (Size of garage in square feet); 
+       TotalBsmtSF (Total square feet of basement area); 
+       TotRmsAbvGrd (Total rooms above grade).
+
+- 4. Dimension - Age - refers to the age of a house and includes the following variables:
+      YearBuilt (Original construction date of a house); 
+      YearRemodAdd (Remodel date of a house).
+      
+Before visually exploring these correlations in more detail, it would be wise to once again check the target variable - SalePrice - before and after log transformation.
+
+```{r}
+# SalePrice variable - original prices in $
+ggplot(training_data, aes(SalePrice)) +
+  geom_histogram(fill="grey") +
+  scale_x_continuous(labels = scales::comma)+
+  labs(title="Figure 5: Distribution of Sale Prices",
+       subtitle = "Original prices (without log) from the dataset in $",
+       x="Sale Prices in $")+
+  theme_bw()
+```
+
+```{r}
+# SalePrice variable - log transformed prices
+ggplot(train, aes(SalePrice)) +
+  geom_histogram(fill="grey") +
+  labs(title="Figure 6: Distribution of Sale Prices",
+       subtitle="Log transformed prices - which will be used for ML models",
+       x="Sale Prices in log")+
+  theme_bw()
+```
+
+From the graphs above it is visible that the log transformation of our target variable (SalePrice) corrected positive skewness of the original data. This log-transformed SalePrice variable will be used later in our ML models.
+
+We can now graphically visualize the most important aspects of previously defined 4 dimensions (quality, location, size and age) and put them in a relation with SalePrice variable (in both original and log-transformed form). One note: for some visualizations we will use the original Sale Price  values in dollars, because it is easier to interpret original values than log transformed ones; although, later for ML models we will use log transformed Sale Price variable because it is closer to the normal distribution.
+
+In the first two figures (Figure 7 and 8) we show relations between quality, location and age of a house vs. its sale price:
+
+```{r}
+training_data %>%
+  ggplot(aes(factor(OverallQual), SalePrice))+
+  geom_point(alpha = 1, aes(color = YearBuilt))+
+  geom_boxplot(alpha =0.01, aes(group=OverallQual))+
+  geom_hline (aes(yintercept = mean(SalePrice)), color="red")+
+  theme_bw()+
+  scale_y_continuous(labels = scales::comma)+
+  labs(title = "Figure 7: Quality and age of a house vs its sale price",
+       subtitle = "In general, houses with better quality are\nmore expensive and newer (red line = mean price)",
+       x= "Overall Quality Grade (from 1 to 10)",
+       y= "Sell Price in $")
+```
+
+```{r}
+training_data %>% 
+  ggplot(aes(reorder(Neighborhood, SalePrice), SalePrice)) +
+  geom_point(alpha = 1, aes(color = YearBuilt))+
+  geom_boxplot(alpha =0.01) +
+  geom_hline(aes(yintercept = mean(SalePrice)),color="red") +
+  theme_bw()+
+  scale_y_continuous(labels = scales::comma)+
+  theme(axis.text.x = element_text(angle = 40, hjust = 1)) +
+  labs(title = "Figure 8:Location and age of a house vs its sale price",
+       subtitle = "In general, newer houses are located in more\nexpansive neighborhoods (red line = mean price) ",
+       x= "Location - Neighborhood",
+       y= "Sell Price in $")
+```
+
+In the next two figures we explore the relations between size, foundation quality and location of a house vs. its sell price. Size of a house is showed with two variables: i) GrLivArea variable (Above ground living area square feet); and ii) with our custom made TotalInsideSF variable (1.+ 2. floor square feet). Foundation quality is showed with our custom made Foundation Score variable (1-6 scale), while location is showed with our custom made Neighborhood Scored variable (1-7 scale). Both figures use log transformed sale prices which will be used for ML models.
+
+```{r}
+train %>%
+  ggplot(aes(GrLivArea, SalePrice))+
+  geom_point(alpha = 0.5, aes(color = FoundationScore))+
+  geom_smooth(method = "lm")+
+  theme_bw()+
+  labs(title = "Figure 9: Size and foundation quality of a house vs its sale price",
+       subtitle = "Larger houses are more expansive, with foundations visibly influencing the price",
+       x= "Above ground living area square feet",
+       y= "Sell Price in log",
+       color="Foundation quality:\n6=best (concrete) \n1=worst(slab)")
+```
+
+```{r}
+train %>%
+  ggplot(aes(TotalInsideSF, SalePrice))+
+  geom_point(alpha = 0.5, aes(color = NeighborhoodScored))+
+  geom_smooth(method = "lm")+
+  theme_bw()+
+  labs(title = "Figure 10: Size and location of a house vs its sale price",
+       subtitle = "Larger houses are more expansive, with location visibly influencing the price",
+       x= "First and second floor square feet",
+       y= "Sell Price in log",
+       color="Location Score:\n7 = most elite \n1= least elite")
+```
+
+The figures above visually present what we already saw in the correlation report (Figure 4).
+
+First, from the graphs above it is visible that houses with higher rated quality are more expansive. Moreover, higher rated houses are also usually newer. Best rated houses (grades around 9 and 10) have around 200.000$ higher prices than the average.
+
+Second, we could also see that there are luxurious locations such as Northridge, Northridge Heights and Stone Brook that have around 100.000$ higher prices than the average. On the other side, locations such as Meadow Village, Iowa DOT and Briardale have significantly lower prices than the average price. Furthermore, elite location usually have newer houses, while older houses are usually located in least elite neighborhoods. Exception could be Crawfor neighborhood with slightly older but above average priced houses.
+
+Third, scatter-plots above put in a relation size of a house (via: i) above ground living area and ii) first and second floor square feet) and its Sale Prices. As expected, as the size of the house increases so does its price. It is also visible that the foundation quality and the location have a visible influence on  the selling price of a house: e.g. for the houses of the same size, if foundation quality or location is better/more elite, this increases its price.
+
+## 6. Machine Learning Models and Results
+
+For data cleaning and feature engineering, we merged train and test data-sets from Kaggle. We find out that Kaggle test data-set has no  SalePrice variable, so it cannot be useful for using it for ML testing or ML validation. In order to do ML predictions we will need to focus on the cleaned "train" part the data (i.e. dataset1[1:1460,]).
+
+We could enlarge the train part of the data-set and this would give us slightly better RMSE results, but this would leave too small proportion of the data for test and validation. That is why the ratio 60%/20%/20% seems appropriate. Our ML models will focus on previously emphasized variables that are most correlated with the sale price of houses from 4 dimensions, namely: size, location, age and quality of houses.
+
+Therefore, we will pick the most correlated variables with the sale price - correlation above 0.45 - for the subset of the data in order to do ML predictions of the house prices.
+
+```{r}
+# Separation of the top correlated variables with Sale Price (with correlation above 0.45) 
+basedf<- subset(train, select = c(OverallQual , NeighborhoodScored, TotalInsideSF, GarageCars,
+                                  GrLivArea, KitchenQual, GarageArea, TotalBsmtSF , FullBath,
+                                  YearBuilt, YearRemodAdd, FoundationScore, TotRmsAbvGrd, 
+                                  Fireplaces, HeatingQC, ExterQual, SalePrice))
+```
+
+After creating the smaller data-set containing only the most correlated variables with SalePrice variable, we will divide it in three parts in the following ratio: 60% for train_set, 20% for test_set, and 20% for validation.
+
+```{r}
+## Tripartite Data partition: 
+set.seed(99, sample.kind = "Rounding")
+
+# Set the fractions of the df for training, validation, and test.
+fractionTraining <- 0.6
+fractionValidation <- 0.2
+fractionTest <- 0.2
+# Compute sample sizes.
+sampleSizeTraining <- floor(fractionTraining * nrow(basedf))
+sampleSizeValidation <- floor(fractionValidation * nrow(basedf))
+sampleSizeTest <- floor(fractionTest * nrow(basedf))
+# Creating the randomly-sampled indices for the dataframe. Use setdiff() to
+# avoid overlapping subsets of indices.
+indicesTraining <- sort(sample(seq_len(nrow(basedf)), size=sampleSizeTraining))
+indicesNotTraining <- setdiff(seq_len(nrow(basedf)), indicesTraining)
+indicesValidation <- sort(sample(indicesNotTraining, size=sampleSizeValidation))
+indicesTest <- setdiff(indicesNotTraining, indicesValidation)
+# Finally, output the three df for training, test and final validation.
+train_set <- basedf[indicesTraining, ]
+validation <- basedf[indicesValidation, ]
+test_set <- basedf[indicesTest, ]
+```
+
+After defining our train, test and validation data-sets we can create our ML models. We will use four different models in order to do prediction: linear regression model, lasso regression model, ridge regression model and random forest model. 
+
+We will measure the performance of these models with residual mean squared error (RMSE) metrics. The RMSE tells us the average distance between the predicted values from the model and the actual values in the dataset and this allow us to see typical error loss. The result of RMSE is in the same units as the outcome variable (in our case - log of sale price). In other words, we can interpret the RMSE similarly to a standard deviation: it is the typical error we make when predicting a selling price of a house. Therefore, ML model is better in predicting house prices when its RMSE score is lower or in other words: the lower the RMSE, the better a given model is able to “fit” a dataset.
+
+Moreover, Kaggle web-site states that the RMSE must be calculated between the logarithm of the predicted value and the logarithm of the observed sale price. Therefore, in order to measure the performance of our ML predictions, the described log RMSE metrics will be used.
+
+Before training our ML models we will define cross-validation plan. Cross-validation is also known as a resampling method because it involves fitting the same statistical method multiple times using different subsets of the data. Here we do ten-fold cross-validation to train our models with the caret package. 
+
+```{r}
+cv_plan <- trainControl(method = "cv", number = 10)
+```
+
+- 1. ML Model: Linear Model -
+We will add previously defined cross-validation to our lm model, do preprocess in order to perform a Principal Component Analysis, and also center and scale predictors and identify predictors with near zero variance.
+
+```{r}
+set.seed(99, sample.kind = "Rounding")
+
+model_lm <- train(SalePrice ~ .,
+                  method = "lm",
+                  trControl = cv_plan,
+                  preProcess = c("nzv", "center", "scale", "pca"),
+                  data = train_set)
+
+pred_lm <- predict(model_lm, test_set)
+rmse_lm <- RMSE((test_set$SalePrice), pred_lm)
+rmse_lm
+```
+
+RMSE score of our first ML linear model is 0.1463
+
+- 2. ML Model: Ridge regression - 
+For the next to models we will use GLMnet package. GLMnet package offers amended regression approach similar to linear regression, but it also provides a way how to, on one side, penalizes number of non-zero-coefficients - called "lasso regression" - and on the other side provides a way how to penalizes absolute magnitude of coefficients - called "ridge regression". This helps in dealing with collinearity and small datasets. Function tuneGrid offers a way how to choose between pure "ridge regression" (setting the alpha = 0) and pure "lasso regression" (setting the alpha = 1). Other tuning settings are similar to linear regression (except not having PCA).
+We will try both "Ridge regression" and "Lasso regression" approaches.
+
+```{r}
+set.seed(99, sample.kind = "Rounding")
+
+model_ridge <- train(SalePrice ~ .,
+                      data=train_set,
+                      tuneGrid = expand.grid(alpha = 0,
+                                             lambda = seq(0.0001, 1, length = 20)),
+                      method = "glmnet",
+                      trControl = cv_plan,
+                      preProcess = c("nzv", "center", "scale"))
+
+pred_ridge <- predict(model_ridge, test_set)
+rmse_ridge <- RMSE((test_set$SalePrice), pred_ridge)
+rmse_ridge
+```
+
+- 3. ML Model: Lasso regression
+
+```{r}
+set.seed(99, sample.kind = "Rounding")
+
+model_lasso <- train(SalePrice ~ .,
+                     data=train_set,
+                     tuneGrid = expand.grid(alpha = 1,
+                                            lambda = seq(0.0001, 1, length = 20)),
+                     method = "glmnet",
+                     trControl = cv_plan,
+                     preProcess = c("nzv", "center", "scale"))
+
+pred_lasso <- predict(model_lasso, test_set)
+rmse_lasso <- RMSE((test_set$SalePrice), pred_lasso)
+rmse_lasso
+```
+
+RMSE score of Ridge regression model is 0.1478 and of Lasso regression model slightly better, namely 0.1471. Both models have slightly worse result than Linear regression model.
+
+- 4. ML Model: Random Forest -
+As the last ML model we will use random forest ML approach. For this we will use  "ranger" method from the caret package. Ranger of caret package is a fast implementation of random forest, particularly suited for high dimensional data and for our case of not very high computational power.
+Here, the most important tuning parameter is the number of randomly selected variables at each split for which we use tuneLength control in the code. The default of tuneLength is 3 (it means that it tries 3 different models), but we will set it to 13. 
+
+```{r}
+set.seed(99, sample.kind = "Rounding")
+
+model_rf <- train(SalePrice ~ .,
+                  tuneLength = 13,
+                  data = train_set,
+                  method = "ranger",
+                  trControl = cv_plan)
+
+pred_rf <- predict(model_rf, test_set)
+rmse_rf <- RMSE((test_set$SalePrice), pred_rf)
+rmse_rf
+```
+
+We can see that random forest ML approach generated the best RMSE score = 0.1439. 
+At the end of this section we present the RMSE results of all 4 trained models:
+```{r}
+# RMSE score compare
+data.frame(Models = c("Linear Reggresion","Ridge Regression", "Lasso Regression", "Random Forest"),
+           Train_RMSE = round(c(rmse_lm,rmse_ridge,rmse_lasso,rmse_rf), 6))
+```
+
+
+In order to check the RMSE results obtained in the previous section and in order to avoid overtraining we will do the final validation of trained models on the validation data-set. At the begging of this section we kept 20% of the data for the final validation of our trained ML models. We will do validation for all trained results in order to compare train/test and train/validation results and to see if random forest ML model is still the one with the lowest RMSE.
+
+```{r}
+# Predictions of the Linear model - final validation
+pred_val_lm <- predict(model_lm, validation)
+rmse_val_lm <- RMSE((validation$SalePrice), pred_val_lm)
+```
+
+```{r}
+# Predictions of Ridge model - final validation
+pred_val_ridge <- predict(model_ridge, validation)
+rmse_val_ridge <- RMSE((validation$SalePrice), pred_val_ridge)
+```
+
+```{r}
+# Predictions of Lasso model - final validation
+pred_val_lasso <- predict(model_lasso, validation)
+rmse_val_lasso <- RMSE((validation$SalePrice), pred_val_lasso)
+```
+
+```{r}
+# Predicting of Random Forest model - final validation
+pred_val_rf <- predict(model_rf, validation)
+rmse_val_rf <- RMSE((validation$SalePrice), pred_val_rf)
+```
+
+```{r}
+# Comparison of RMSEs between train/test and validation sets
+data.frame(Model_type = c("Linear Reggresion","Ridge Regression", "Lasso Regression", "Random Forest"),
+           RMSE_original_train = c(rmse_lm,rmse_ridge,rmse_lasso,rmse_rf),
+           RMSE_validation = c(rmse_val_lm, rmse_val_ridge, rmse_val_lasso, rmse_val_rf))
+```
+
+
+The final validation-results of our ML models are similar with the results we acquired during training. Differences between the RMSE values of original train and validation phase are not large. 
+
+The best result during training (0.144) and final validation (0.135) was the one acquired with the Random Forest ML approach . 
+
+
+
+## 7. Summary and Conclusion 
+In this project the goal was to create the house price prediction system  with the help of the Kaggle data-set. 
+
+The first thing we did was to clean the data, after which we did some data remodeling and engineering in order to enhance variables we have for our machine learning purposes. Namely, first we recoded some descriptive variables in order to get ordinal data; secondly, we created some new features/variables from existing variables - foundation score and location score; and thirdly, we dealt with skewness of the target value - SalePrice - by applying the log transformation. 
+
+After that, we visualized variables that are most correlated with the sale price of houses. The results showed that four dimension most correlated with the sale price of a house are its: size, location, age and quality. We focused on the 16 most correlated variables (with correlation above 0.45) from those 4 dimension in order to do ML predictions of the house prices. Further, we dived this final, cleaned and focused data-set in 3 parts: 60% of it for training the data, 20% for testing and 20% for the final validation of our ML models.
+
+Finally, we used four machine learning models to build our house prediction system, namely: linear regression model, lasso regression model, ridge regression model and random forest model. The RMSE metric was used as a measure of the performance of these models. Obtained RMSE scores during training/testing and final validation phase are summarized in the table below:  
+
+
+| Machine Learning Model                      | RMSE - training     |
+|---------------------------------------------|---------------------|
+| Linear Reggresion                           |     0.146328        |
+| Ridge Regression                            |     0.147847        |
+| Lasso Regression                            |     0.147144        |
+| Random Forest                               |     0.143926        |
+
+| Machine Learning Model                      | RMSE - validation   |
+|---------------------------------------------|---------------------|                    
+| Linear Reggresion                           |     0.143772        |
+| Ridge Regression                            |     0.144394        |
+| Lasso Regression                            |     0.144067        |
+| Random Forest                               |     0.134628        |
+
+                                              
+The best result during training (0.144) and final validation (0.135) was the one acquired with the Random Forest ML approach.
+
+Naturally, the presented work can be used as a basis for future improvement. The best Kaggle results have much better RMSE scores. Some of the limitations and possible future updates of this work  would include:
+
+- Machine learning models: we could have used some other, more advanced ML models in order to acquire better RMSE scores
+- Data cleaning and engineering: data cleaning was important prerequisite for building ML models in this case. This work   could have been done in some other way then it was presented here. Also, some other custom-made features/variables 
+  could have been used in order use them during machine learning.
+- Outliers: when the data was visualized some outliers were visible, however I decided not to delete them in order to 
+  use all the original data.
+- The data-set used for training of our machine learning models is not large: 876 observations and 16 most correlated     variables with our outcome variable (sale price). Some other approach of data training, data partition and cross-validations could have been used in order to train ML models with lower RMSE values.
